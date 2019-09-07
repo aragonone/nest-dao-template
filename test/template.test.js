@@ -1,6 +1,5 @@
 /* global contract artifacts web3 assert */
 
-const encodeCall = require('@aragon/templates-shared/helpers/encodeCall')
 const assertRevert = require('@aragon/templates-shared/helpers/assertRevert')(web3)
 
 const { hash: namehash } = require('eth-ens-namehash')
@@ -22,7 +21,6 @@ const Voting = artifacts.require('Voting')
 const Finance = artifacts.require('Finance')
 const TokenManager = artifacts.require('TokenManager')
 const MiniMeToken = artifacts.require('MiniMeToken')
-const MockContract = artifacts.require('Migrations')
 const PublicResolver = artifacts.require('PublicResolver')
 const EVMScriptRegistry = artifacts.require('EVMScriptRegistry')
 
@@ -31,8 +29,8 @@ const ONE_WEEK = ONE_DAY * 7
 const THIRTY_DAYS = ONE_DAY * 30
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
-contract('Membership', ([owner, member1, member2, someone]) => {
-  let daoID, template, dao, acl, ens, feed
+contract('Membership', ([owner, member1, member2]) => {
+  let daoID, template, dao, acl, ens
   let voting, tokenManager, token, finance, agent, vault
 
   const MEMBERS = [member1, member2]
@@ -49,13 +47,6 @@ contract('Membership', ([owner, member1, member2, someone]) => {
     ens = ENS.at(registry)
     template = NestTemplate.at(address)
   })
-
-  const newInstance = (...params) => {
-    const lastParam = params[params.length - 1]
-    const txParams = (!Array.isArray(lastParam) && typeof lastParam === 'object') ? params.pop() : {}
-    const newInstanceFn = NestTemplate.abi.find(({ name, inputs }) => name === 'newInstance' && inputs.length === params.length)
-    return template.sendTransaction(encodeCall(newInstanceFn, params, txParams))
-  }
 
   const loadDAO = async (tokenReceipt, instanceReceipt, apps = { vault: false, agent: false }) => {
     dao = Kernel.at(getEventArgument(instanceReceipt, 'DeployDao', 'dao'))
@@ -270,7 +261,7 @@ contract('Membership', ([owner, member1, member2, someone]) => {
 
       context('when there was no token created before', () => {
         it('reverts', async () => {
-          await assertRevert(newInstance(randomId(), MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_MISSING_TOKEN_CACHE')
+          await assertRevert(template.newInstance(randomId(), MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_MISSING_TOKEN_CACHE')
         })
       })
 
@@ -280,11 +271,11 @@ contract('Membership', ([owner, member1, member2, someone]) => {
         })
 
         it('reverts when no members were given', async () => {
-          await assertRevert(newInstance(randomId(), [], VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'MEMBERSHIP_MISSING_MEMBERS')
+          await assertRevert(template.newInstance(randomId(), [], VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'MEMBERSHIP_MISSING_MEMBERS')
         })
 
         it('reverts when an empty id is provided', async () => {
-          await assertRevert(newInstance('', MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_INVALID_ID')
+          await assertRevert(template.newInstance('', MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_INVALID_ID')
         })
       })
     })
@@ -312,7 +303,7 @@ contract('Membership', ([owner, member1, member2, someone]) => {
         before('create membership entity', async () => {
           daoID = randomId()
           tokenReceipt = await template.newToken(TOKEN_NAME, TOKEN_SYMBOL, { from: owner })
-          instanceReceipt = await newInstance(daoID, MEMBERS, VOTING_SETTINGS, financePeriod, useAgentAsVault, { from: owner })
+          instanceReceipt = await template.newInstance(daoID, MEMBERS, VOTING_SETTINGS, financePeriod, useAgentAsVault, { from: owner })
           await loadDAO(tokenReceipt, instanceReceipt, { vault: !useAgentAsVault, agent: useAgentAsVault })
         })
       }
