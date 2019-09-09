@@ -49,7 +49,7 @@ contract NestTemplate is BaseTemplate, TokenCache {
 
         (Kernel dao, ACL acl) = _createDAO();
         (Finance finance, Voting voting) = _setupApps(dao, acl, _members, _votingSettings, _financePeriod, _approvalsNameHash, _aaAccount);
-        _transferRootPermissionsFromTemplateAndFinalizeDAO(dao, voting);
+        _transferRootPermissionsFromTemplateAndFinalizeDAO(dao, _aaAccount);
         _registerID(_id, dao);
     }
 
@@ -94,13 +94,24 @@ contract NestTemplate is BaseTemplate, TokenCache {
     )
         internal
     {
-        _createVaultPermissions(_acl, _vault, _finance, _voting);
-        _createFinancePermissions(_acl, _finance, _voting, _voting);
-        _createFinanceCreatePaymentsPermission(_acl, _finance, _voting, _voting);
+        _createVaultPermissions(_acl, _vault, _finance, _aaAccount);
+        _createFinancePermissions(_acl, _finance, _voting, _aaAccount);
+        _createFinanceCreatePaymentsPermission(_acl, _finance, _voting, _aaAccount);
         _createEvmScriptsRegistryPermissions(_acl, _voting, _voting);
-        _createVotingPermissions(_acl, _voting, _voting, _tokenManager, _voting);
-        _createTokenManagerPermissions(_acl, _tokenManager, _voting, _voting);
+        _createVotingPermissions(_acl, _voting, _voting, _tokenManager, _aaAccount);
+        _createCustomTokenManagerPermissions(_acl, _tokenManager, _voting, _aaAccount);
         _createApprovalsPermissions(_acl, _approvals, _aaAccount);
+    }
+
+    function _createCustomTokenManagerPermissions(ACL _acl, TokenManager _tokenManager, Voting _voting, address _aaAccount) internal {
+        _acl.createPermission(_voting, _tokenManager, _tokenManager.MINT_ROLE(), address(this));
+        _acl.createPermission(_voting, _tokenManager, _tokenManager.BURN_ROLE(), address(this));
+
+        _acl.grantPermission(_aaAccount, _tokenManager, _tokenManager.MINT_ROLE());
+        _acl.grantPermission(_aaAccount, _tokenManager, _tokenManager.BURN_ROLE());
+
+        _acl.setPermissionManager(_aaAccount, _tokenManager, _tokenManager.MINT_ROLE());
+        _acl.setPermissionManager(_aaAccount, _tokenManager, _tokenManager.BURN_ROLE());
     }
 
     function _createApprovalsPermissions(ACL _acl, Approvals _approvals, address _aaAccount) internal {

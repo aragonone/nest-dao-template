@@ -37,6 +37,7 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
   const MEMBERS = [member1, member2]
   const TOKEN_NAME = 'Member Token'
   const TOKEN_SYMBOL = 'Member'
+  const AA_ACCOUNT = { address: aaAccount }
 
   const SUPPORT_REQUIRED = 66e16
   const VOTE_DURATION = 15 * ONE_DAY
@@ -106,17 +107,19 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
       assert.equal((await voting.minAcceptQuorumPct()).toString(), MIN_ACCEPTANCE_QUORUM)
       assert.equal((await voting.voteTime()).toString(), VOTE_DURATION)
 
-      await assertRole(acl, voting, voting, 'CREATE_VOTES_ROLE', tokenManager)
-      await assertRole(acl, voting, voting, 'MODIFY_QUORUM_ROLE')
-      await assertRole(acl, voting, voting, 'MODIFY_SUPPORT_ROLE')
+      await assertRole(acl, voting, AA_ACCOUNT, 'CREATE_VOTES_ROLE', tokenManager)
+      await assertRole(acl, voting, AA_ACCOUNT, 'MODIFY_QUORUM_ROLE', voting)
+      await assertRole(acl, voting, AA_ACCOUNT, 'MODIFY_SUPPORT_ROLE', voting)
     })
 
     it('should have token manager app correctly setup', async () => {
       assert.isTrue(await tokenManager.hasInitialized(), 'token manager not initialized')
       assert.equal(await tokenManager.token(), token.address)
 
-      await assertRole(acl, tokenManager, voting, 'MINT_ROLE')
-      await assertRole(acl, tokenManager, voting, 'BURN_ROLE')
+      await assertRole(acl, tokenManager, AA_ACCOUNT, 'MINT_ROLE')
+      await assertRole(acl, tokenManager, AA_ACCOUNT, 'BURN_ROLE')
+      await assertRole(acl, tokenManager, AA_ACCOUNT, 'MINT_ROLE', voting)
+      await assertRole(acl, tokenManager, AA_ACCOUNT, 'BURN_ROLE', voting)
 
       await assertMissingRole(acl, tokenManager, 'ISSUE_ROLE')
       await assertMissingRole(acl, tokenManager, 'ASSIGN_ROLE')
@@ -128,17 +131,17 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
 
       assert.equal((await finance.getPeriodDuration()).toString(), FINANCE_PERIOD, 'finance period should be 30 days')
 
-      await assertRole(acl, finance, voting, 'CREATE_PAYMENTS_ROLE')
-      await assertRole(acl, finance, voting, 'EXECUTE_PAYMENTS_ROLE')
-      await assertRole(acl, finance, voting, 'MANAGE_PAYMENTS_ROLE')
+      await assertRole(acl, finance, AA_ACCOUNT, 'CREATE_PAYMENTS_ROLE', voting)
+      await assertRole(acl, finance, AA_ACCOUNT, 'EXECUTE_PAYMENTS_ROLE', voting)
+      await assertRole(acl, finance, AA_ACCOUNT, 'MANAGE_PAYMENTS_ROLE', voting)
 
       await assertMissingRole(acl, finance, 'CHANGE_PERIOD_ROLE')
       await assertMissingRole(acl, finance, 'CHANGE_BUDGETS_ROLE')
     })
 
     it('sets up DAO and ACL permissions correctly', async () => {
-      await assertRole(acl, dao, voting, 'APP_MANAGER_ROLE')
-      await assertRole(acl, acl, voting, 'CREATE_PERMISSIONS_ROLE')
+      await assertRole(acl, dao, AA_ACCOUNT, 'APP_MANAGER_ROLE')
+      await assertRole(acl, acl, AA_ACCOUNT, 'CREATE_PERMISSIONS_ROLE')
 
       await assertRoleNotGranted(acl, dao, 'APP_MANAGER_ROLE', template)
       await assertRoleNotGranted(acl, acl, 'CREATE_PERMISSIONS_ROLE', template)
@@ -157,16 +160,15 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
       assert.equal(web3.toChecksumAddress(await finance.vault()), vault.address, 'finance vault is not the vault app')
       assert.equal(web3.toChecksumAddress(await dao.getRecoveryVault()), vault.address, 'vault app is not being used as the vault app of the DAO')
 
-      await assertRole(acl, vault, voting, 'TRANSFER_ROLE', finance)
+      await assertRole(acl, vault, AA_ACCOUNT, 'TRANSFER_ROLE', finance)
     })
 
     it('should have an approvals app correctly setup', async () => {
       assert.isTrue(await approvals.hasInitialized(), 'approvals not initialized')
 
-      const aaAccountWrapped = { address: aaAccount }
-      await assertRole(acl, approvals, aaAccountWrapped, 'SUBMIT_ROLE', { address: ANY_ADDRESS })
-      await assertRole(acl, approvals, aaAccountWrapped, 'APPROVE_ROLE')
-      await assertRole(acl, approvals, aaAccountWrapped, 'REJECT_ROLE')
+      await assertRole(acl, approvals, AA_ACCOUNT, 'SUBMIT_ROLE', { address: ANY_ADDRESS })
+      await assertRole(acl, approvals, AA_ACCOUNT, 'APPROVE_ROLE')
+      await assertRole(acl, approvals, AA_ACCOUNT, 'REJECT_ROLE')
     })
   }
 
@@ -273,7 +275,7 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
       }
 
       createDAO()
-      itCostsUpTo(1.71e6, 5.44e6)
+      itCostsUpTo(1.71e6, 5.58e6)
       itSetupsDAOCorrectly()
     })
   })
