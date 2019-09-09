@@ -248,8 +248,7 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
     context('when the creation succeeds', () => {
       let instanceReceipt, tokenReceipt
 
-      const itCostsUpTo = (expectedDaoCreationCost) => {
-        const expectedTokenCreationCost = 1.8e6
+      const itCostsUpTo = (expectedTokenCreationCost, expectedDaoCreationCost) => {
         const expectedTotalCost = expectedTokenCreationCost + expectedDaoCreationCost
 
         it(`gas costs must be up to ~${expectedTotalCost} gas`, async () => {
@@ -274,7 +273,7 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
       }
 
       createDAO()
-      itCostsUpTo(5.5e6)
+      itCostsUpTo(1.71e6, 5.44e6)
       itSetupsDAOCorrectly()
     })
   })
