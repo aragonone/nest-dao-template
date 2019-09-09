@@ -49,7 +49,6 @@ contract NestTemplate is BaseTemplate, TokenCache {
 
         (Kernel dao, ACL acl) = _createDAO();
         (Finance finance, Voting voting) = _setupApps(dao, acl, _members, _votingSettings, _financePeriod, _approvalsNameHash, _aaAccount);
-        _transferCreatePaymentManagerFromTemplate(acl, finance, voting);
         _transferRootPermissionsFromTemplateAndFinalizeDAO(dao, voting);
         _registerID(_id, dao);
     }
@@ -97,7 +96,7 @@ contract NestTemplate is BaseTemplate, TokenCache {
     {
         _createVaultPermissions(_acl, _vault, _finance, _voting);
         _createFinancePermissions(_acl, _finance, _voting, _voting);
-        _createFinanceCreatePaymentsPermission(_acl, _finance, _voting, address(this));
+        _createFinanceCreatePaymentsPermission(_acl, _finance, _voting, _voting);
         _createEvmScriptsRegistryPermissions(_acl, _voting, _voting);
         _createVotingPermissions(_acl, _voting, _voting, _tokenManager, _voting);
         _createTokenManagerPermissions(_acl, _tokenManager, _voting, _voting);
