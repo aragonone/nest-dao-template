@@ -15,7 +15,6 @@ const NestTemplate = artifacts.require('NestTemplate')
 const ENS = artifacts.require('ENS')
 const ACL = artifacts.require('ACL')
 const Kernel = artifacts.require('Kernel')
-const Agent = artifacts.require('Agent')
 const Vault = artifacts.require('Vault')
 const Voting = artifacts.require('Voting')
 const Finance = artifacts.require('Finance')
@@ -25,22 +24,22 @@ const PublicResolver = artifacts.require('PublicResolver')
 const EVMScriptRegistry = artifacts.require('EVMScriptRegistry')
 
 const ONE_DAY = 60 * 60 * 24
-const ONE_WEEK = ONE_DAY * 7
-const THIRTY_DAYS = ONE_DAY * 30
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+const ONE_MONTH = 30 * ONE_DAY
 
 contract('Membership', ([owner, member1, member2]) => {
   let daoID, template, dao, acl, ens
-  let voting, tokenManager, token, finance, agent, vault
+  let voting, tokenManager, token, finance, vault
 
   const MEMBERS = [member1, member2]
   const TOKEN_NAME = 'Member Token'
-  const TOKEN_SYMBOL = 'MEMBER'
+  const TOKEN_SYMBOL = 'Member'
 
-  const VOTE_DURATION = ONE_WEEK
-  const SUPPORT_REQUIRED = 50e16
-  const MIN_ACCEPTANCE_QUORUM = 20e16
+  const VOTE_DURATION = 15 * ONE_DAY
+  const SUPPORT_REQUIRED = 66e16
+  const MIN_ACCEPTANCE_QUORUM = 50e16
   const VOTING_SETTINGS = [SUPPORT_REQUIRED, MIN_ACCEPTANCE_QUORUM, VOTE_DURATION]
+
+  const FINANCE_PERIOD = ONE_MONTH
 
   before('fetch membership template and ENS', async () => {
     const { registry, address } = await deployedAddresses()
@@ -48,7 +47,7 @@ contract('Membership', ([owner, member1, member2]) => {
     template = NestTemplate.at(address)
   })
 
-  const loadDAO = async (tokenReceipt, instanceReceipt, apps = { vault: false, agent: false }) => {
+  const loadDAO = async (tokenReceipt, instanceReceipt) => {
     dao = Kernel.at(getEventArgument(instanceReceipt, 'DeployDao', 'dao'))
     token = MiniMeToken.at(getEventArgument(tokenReceipt, 'DeployToken', 'token'))
     acl = ACL.at(await dao.acl())
@@ -65,18 +64,11 @@ contract('Membership', ([owner, member1, member2]) => {
     assert.equal(installedApps['token-manager'].length, 1, 'should have installed 1 token manager app')
     tokenManager = TokenManager.at(installedApps['token-manager'][0])
 
-    if (apps.agent) {
-      assert.equal(installedApps.agent.length, 1, 'should have installed 1 agent app')
-      agent = Agent.at(installedApps.agent[0])
-    }
-
-    if (apps.vault) {
-      assert.equal(installedApps.vault.length, 1, 'should have installed 1 vault app')
-      vault = Vault.at(installedApps.vault[0])
-    }
+    assert.equal(installedApps.vault.length, 1, 'should have installed 1 vault app')
+    vault = Vault.at(installedApps.vault[0])
   }
 
-  const itSetupsDAOCorrectly = financePeriod => {
+  const itSetupsDAOCorrectly = () => {
     it('registers a new DAO on ENS', async () => {
       const aragonIdNameHash = namehash(`${daoID}.aragonid.eth`)
       const resolvedAddress = await PublicResolver.at(await ens.resolver(aragonIdNameHash)).addr(aragonIdNameHash)
@@ -121,8 +113,7 @@ contract('Membership', ([owner, member1, member2]) => {
     it('should have finance app correctly setup', async () => {
       assert.isTrue(await finance.hasInitialized(), 'finance not initialized')
 
-      const expectedPeriod = financePeriod === 0 ? THIRTY_DAYS : financePeriod
-      assert.equal((await finance.getPeriodDuration()).toString(), expectedPeriod, 'finance period should be 30 days')
+      assert.equal((await finance.getPeriodDuration()).toString(), FINANCE_PERIOD, 'finance period should be 30 days')
 
       await assertRole(acl, finance, voting, 'CREATE_PAYMENTS_ROLE')
       await assertRole(acl, finance, voting, 'EXECUTE_PAYMENTS_ROLE')
@@ -147,24 +138,6 @@ contract('Membership', ([owner, member1, member2]) => {
     })
   }
 
-  const itSetupsAgentAppCorrectly = () => {
-    it('should have agent app correctly setup', async () => {
-      assert.isTrue(await agent.hasInitialized(), 'agent not initialized')
-      assert.equal(await agent.designatedSigner(), ZERO_ADDRESS)
-
-      assert.equal(await dao.recoveryVaultAppId(), APP_IDS.agent, 'agent app is not being used as the vault app of the DAO')
-      assert.equal(web3.toChecksumAddress(await finance.vault()), agent.address, 'finance vault is not linked to the agent app')
-      assert.equal(web3.toChecksumAddress(await dao.getRecoveryVault()), agent.address, 'agent app is not being used as the vault app of the DAO')
-
-      await assertRole(acl, agent, voting, 'EXECUTE_ROLE')
-      await assertRole(acl, agent, voting, 'RUN_SCRIPT_ROLE')
-      await assertRole(acl, agent, voting, 'TRANSFER_ROLE', finance)
-
-      await assertMissingRole(acl, agent, 'DESIGNATE_SIGNER_ROLE')
-      await assertMissingRole(acl, agent, 'ADD_PRESIGNED_HASH_ROLE')
-    })
-  }
-
   const itSetupsVaultAppCorrectly = () => {
     it('should have vault app correctly setup', async () => {
       assert.isTrue(await vault.hasInitialized(), 'vault not initialized')
@@ -179,26 +152,23 @@ contract('Membership', ([owner, member1, member2]) => {
 
   context('creating instances with a single transaction', () => {
     context('when the creation fails', () => {
-      const FINANCE_PERIOD = 0
-      const USE_AGENT_AS_VAULT = true
-
       it('reverts when no members were given', async () => {
-        await assertRevert(template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, randomId(), [], VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'MEMBERSHIP_MISSING_MEMBERS')
+        await assertRevert(template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, randomId(), [], VOTING_SETTINGS, FINANCE_PERIOD), 'NEST_TEMPLATE_MISSING_MEMBERS')
       })
 
       it('reverts when an empty id is provided', async () => {
-        await assertRevert(template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, '', MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_INVALID_ID')
+        await assertRevert(template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, '', MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD), 'TEMPLATE_INVALID_ID')
       })
     })
 
     context('when the creation succeeds', () => {
       let receipt
 
-      const createDAO = (useAgentAsVault = false, financePeriod = 0) => {
+      const createDAO = () => {
         before('create membership entity', async () => {
           daoID = randomId()
-          receipt = await template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, daoID, MEMBERS, VOTING_SETTINGS, financePeriod, useAgentAsVault, { from: owner })
-          await loadDAO(receipt, receipt, { vault: !useAgentAsVault, agent: useAgentAsVault })
+          receipt = await template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, { from: owner })
+          await loadDAO(receipt, receipt)
         })
       }
 
@@ -208,60 +178,18 @@ contract('Membership', ([owner, member1, member2]) => {
         })
       }
 
-      context('when requesting a custom finance period', () => {
-        const FINANCE_PERIOD = 60 * 60 * 24 * 15 // 15 days
-
-        context('when requesting an agent app', () => {
-          const USE_AGENT_AS_VAULT = true
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(6.75e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsAgentAppCorrectly()
-        })
-
-        context('when requesting a vault app', () => {
-          const USE_AGENT_AS_VAULT = false
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(6.6e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsVaultAppCorrectly()
-        })
-      })
-
-      context('when requesting a default finance period', () => {
-        const FINANCE_PERIOD = 0 // use default
-
-        context('when requesting an agent app', () => {
-          const USE_AGENT_AS_VAULT = true
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(6.75e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsAgentAppCorrectly()
-        })
-
-        context('when requesting a vault app', () => {
-          const USE_AGENT_AS_VAULT = false
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(6.6e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsVaultAppCorrectly()
-        })
-      })
+      createDAO()
+      itCostsUpTo(6.6e6)
+      itSetupsDAOCorrectly()
+      itSetupsVaultAppCorrectly()
     })
   })
 
   context('creating instances with separate transactions', () => {
     context('when the creation fails', () => {
-      const FINANCE_PERIOD = 0
-      const USE_AGENT_AS_VAULT = true
-
       context('when there was no token created before', () => {
         it('reverts', async () => {
-          await assertRevert(template.newInstance(randomId(), MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_MISSING_TOKEN_CACHE')
+          await assertRevert(template.newInstance(randomId(), MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD), 'TEMPLATE_MISSING_TOKEN_CACHE')
         })
       })
 
@@ -271,11 +199,11 @@ contract('Membership', ([owner, member1, member2]) => {
         })
 
         it('reverts when no members were given', async () => {
-          await assertRevert(template.newInstance(randomId(), [], VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'MEMBERSHIP_MISSING_MEMBERS')
+          await assertRevert(template.newInstance(randomId(), [], VOTING_SETTINGS, FINANCE_PERIOD), 'NEST_TEMPLATE_MISSING_MEMBERS')
         })
 
         it('reverts when an empty id is provided', async () => {
-          await assertRevert(template.newInstance('', MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, USE_AGENT_AS_VAULT), 'TEMPLATE_INVALID_ID')
+          await assertRevert(template.newInstance('', MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD), 'TEMPLATE_INVALID_ID')
         })
       })
     })
@@ -299,58 +227,19 @@ contract('Membership', ([owner, member1, member2]) => {
         })
       }
 
-      const createDAO = (useAgentAsVault = false, financePeriod = 0) => {
+      const createDAO = () => {
         before('create membership entity', async () => {
           daoID = randomId()
           tokenReceipt = await template.newToken(TOKEN_NAME, TOKEN_SYMBOL, { from: owner })
-          instanceReceipt = await template.newInstance(daoID, MEMBERS, VOTING_SETTINGS, financePeriod, useAgentAsVault, { from: owner })
-          await loadDAO(tokenReceipt, instanceReceipt, { vault: !useAgentAsVault, agent: useAgentAsVault })
+          instanceReceipt = await template.newInstance(daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, { from: owner })
+          await loadDAO(tokenReceipt, instanceReceipt)
         })
       }
 
-      context('when requesting a custom finance period', () => {
-        const FINANCE_PERIOD = 60 * 60 * 24 * 15 // 15 days
-
-        context('when requesting an agent app', () => {
-          const USE_AGENT_AS_VAULT = true
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(5.05e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsAgentAppCorrectly()
-        })
-
-        context('when requesting a vault app', () => {
-          const USE_AGENT_AS_VAULT = false
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(5e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsVaultAppCorrectly()
-        })
-      })
-
-      context('when requesting a default finance period', () => {
-        const FINANCE_PERIOD = 0 // use default
-
-        context('when requesting an agent app', () => {
-          const USE_AGENT_AS_VAULT = true
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(5.05e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsAgentAppCorrectly()
-        })
-
-        context('when requesting a vault app', () => {
-          const USE_AGENT_AS_VAULT = false
-
-          createDAO(USE_AGENT_AS_VAULT, FINANCE_PERIOD)
-          itCostsUpTo(5e6)
-          itSetupsDAOCorrectly(FINANCE_PERIOD)
-          itSetupsVaultAppCorrectly()
-        })
-      })
+      createDAO()
+      itCostsUpTo(5e6)
+      itSetupsDAOCorrectly()
+      itSetupsVaultAppCorrectly()
     })
   })
 })

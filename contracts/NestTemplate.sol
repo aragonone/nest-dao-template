@@ -5,13 +5,13 @@ import "@aragon/templates-shared/contracts/BaseTemplate.sol";
 
 
 contract NestTemplate is BaseTemplate, TokenCache {
-    string constant private ERROR_MISSING_MEMBERS = "MEMBERSHIP_MISSING_MEMBERS";
-    string constant private ERROR_BAD_VOTE_SETTINGS = "MEMBERSHIP_BAD_VOTE_SETTINGS";
+    string constant private ERROR_MISSING_MEMBERS = "NEST_TEMPLATE_MISSING_MEMBERS";
+    string constant private ERROR_BAD_VOTE_SETTINGS = "NEST_TEMPLATE_BAD_VOTE_SETTINGS";
+    string constant private ERROR_BAD_FINANCE_PERIOD = "NEST_TEMPLATE_BAD_VOTE_SETTINGS";
 
     bool constant private TOKEN_TRANSFERABLE = false;
     uint8 constant private TOKEN_DECIMALS = uint8(0);
     uint256 constant private TOKEN_MAX_PER_ACCOUNT = uint256(1);
-    uint64 constant private DEFAULT_FINANCE_PERIOD = uint64(30 days);
 
     constructor(DAOFactory _daoFactory, ENS _ens, MiniMeTokenFactory _miniMeFactory, IFIFSResolvingRegistrar _aragonID)
         BaseTemplate(_daoFactory, _ens, _miniMeFactory, _aragonID)
@@ -29,8 +29,7 @@ contract NestTemplate is BaseTemplate, TokenCache {
     * @param _id String with the name for org, will assign `[id].aragonid.eth`
     * @param _members Array of member addresses (1 token will be minted for each member)
     * @param _votingSettings Array of [supportRequired, minAcceptanceQuorum, voteDuration] to set up the voting app of the organization
-    * @param _financePeriod Initial duration for accounting periods, it can be set to zero in order to use the default of 30 days.
-    * @param _useAgentAsVault Boolean to tell whether to use an Agent app as a more advanced form of Vault app
+    * @param _financePeriod Initial duration for accounting periods.
     */
     function newTokenAndInstance(
         string _tokenName,
@@ -38,13 +37,12 @@ contract NestTemplate is BaseTemplate, TokenCache {
         string _id,
         address[] _members,
         uint64[3] _votingSettings,
-        uint64 _financePeriod,
-        bool _useAgentAsVault
+        uint64 _financePeriod
     )
         external
     {
         newToken(_tokenName, _tokenSymbol);
-        newInstance(_id, _members, _votingSettings, _financePeriod, _useAgentAsVault);
+        newInstance(_id, _members, _votingSettings, _financePeriod);
     }
 
     /**
@@ -63,23 +61,21 @@ contract NestTemplate is BaseTemplate, TokenCache {
     * @param _id String with the name for org, will assign `[id].aragonid.eth`
     * @param _members Array of member addresses (1 token will be minted for each member)
     * @param _votingSettings Array of [supportRequired, minAcceptanceQuorum, voteDuration] to set up the voting app of the organization
-    * @param _financePeriod Initial duration for accounting periods, it can be set to zero in order to use the default of 30 days.
-    * @param _useAgentAsVault Boolean to tell whether to use an Agent app as a more advanced form of Vault app
+    * @param _financePeriod Initial duration for accounting periods.
     */
     function newInstance(
         string memory _id,
         address[] memory _members,
         uint64[3] memory _votingSettings,
-        uint64 _financePeriod,
-        bool _useAgentAsVault
+        uint64 _financePeriod
     )
         public
 	{
         _validateId(_id);
-        _ensureMembershipSettings(_members, _votingSettings);
+        _validateMembershipSettings(_members, _votingSettings, _financePeriod);
 
         (Kernel dao, ACL acl) = _createDAO();
-        (Finance finance, Voting voting) = _setupApps(dao, acl, _members, _votingSettings, _financePeriod, _useAgentAsVault);
+        (Finance finance, Voting voting) = _setupApps(dao, acl, _members, _votingSettings, _financePeriod);
         _transferCreatePaymentManagerFromTemplate(acl, finance, voting);
         _transferRootPermissionsFromTemplateAndFinalizeDAO(dao, voting);
         _registerID(_id, dao);
@@ -90,38 +86,33 @@ contract NestTemplate is BaseTemplate, TokenCache {
         ACL _acl,
         address[] memory _members,
         uint64[3] memory _votingSettings,
-        uint64 _financePeriod,
-        bool _useAgentAsVault
+        uint64 _financePeriod
     )
         internal
         returns (Finance, Voting)
     {
         MiniMeToken token = _popTokenCache(msg.sender);
-        Vault agentOrVault = _useAgentAsVault ? _installDefaultAgentApp(_dao) : _installVaultApp(_dao);
-        Finance finance = _installFinanceApp(_dao, agentOrVault, _financePeriod == 0 ? DEFAULT_FINANCE_PERIOD : _financePeriod);
+        Vault vault = _installVaultApp(_dao);
+        Finance finance = _installFinanceApp(_dao, vault, _financePeriod);
         TokenManager tokenManager = _installTokenManagerApp(_dao, token, TOKEN_TRANSFERABLE, TOKEN_MAX_PER_ACCOUNT);
         Voting voting = _installVotingApp(_dao, token, _votingSettings);
 
         _mintTokens(_acl, tokenManager, _members, 1);
-        _setupPermissions(_acl, agentOrVault, voting, finance, tokenManager, _useAgentAsVault);
+        _setupPermissions(_acl, vault, voting, finance, tokenManager);
 
         return (finance, voting);
     }
 
     function _setupPermissions(
         ACL _acl,
-        Vault _agentOrVault,
+        Vault _vault,
         Voting _voting,
         Finance _finance,
-        TokenManager _tokenManager,
-        bool _useAgentAsVault
+        TokenManager _tokenManager
     )
         internal
     {
-        if (_useAgentAsVault) {
-            _createAgentPermissions(_acl, Agent(_agentOrVault), _voting, _voting);
-        }
-        _createVaultPermissions(_acl, _agentOrVault, _finance, _voting);
+        _createVaultPermissions(_acl, _vault, _finance, _voting);
         _createFinancePermissions(_acl, _finance, _voting, _voting);
         _createFinanceCreatePaymentsPermission(_acl, _finance, _voting, address(this));
         _createEvmScriptsRegistryPermissions(_acl, _voting, _voting);
@@ -129,8 +120,9 @@ contract NestTemplate is BaseTemplate, TokenCache {
         _createTokenManagerPermissions(_acl, _tokenManager, _voting, _voting);
     }
 
-    function _ensureMembershipSettings(address[] memory _members, uint64[3] memory _votingSettings) private pure {
+    function _validateMembershipSettings(address[] memory _members, uint64[3] memory _votingSettings, uint64 _financePeriod) private pure {
         require(_members.length > 0, ERROR_MISSING_MEMBERS);
+        require(_financePeriod > 0, ERROR_BAD_FINANCE_PERIOD);
         require(_votingSettings.length == 3, ERROR_BAD_VOTE_SETTINGS);
     }
 }
