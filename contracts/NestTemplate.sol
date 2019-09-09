@@ -3,11 +3,19 @@ pragma solidity 0.4.24;
 import "@aragon/templates-shared/contracts/TokenCache.sol";
 import "@aragon/templates-shared/contracts/BaseTemplate.sol";
 
+import "@aragon/approvals/contracts/Approvals.sol";
+
 
 contract NestTemplate is BaseTemplate, TokenCache {
     string constant private ERROR_MISSING_MEMBERS = "NEST_TEMPLATE_MISSING_MEMBERS";
-    string constant private ERROR_BAD_VOTE_SETTINGS = "NEST_TEMPLATE_BAD_VOTE_SETTINGS";
-    string constant private ERROR_BAD_FINANCE_PERIOD = "NEST_TEMPLATE_BAD_VOTE_SETTINGS";
+    string constant private ERROR_BAD_FINANCE_PERIOD = "NEST_TEMPLATE_BAD_FINANCE_PERIOD";
+    string constant private ERROR_BAD_VOTE_SUPPORT = "NEST_TEMPLATE_BAD_SUPPORT";
+    string constant private ERROR_BAD_VOTE_ACCEPTANCE = "NEST_TEMPLATE_BAD_ACCEPTANCE";
+    string constant private ERROR_BAD_VOTE_DURATION = "NEST_TEMPLATE_BAD_DURATION";
+    string constant private ERROR_BAD_APPROVALS = "NEST_TEMPLATE_BAD_APPROVALS";
+    string constant private ERROR_BAD_AA_ACCOUNT = "NEST_TEMPLATE_BAD_AA_ACCOUNT";
+
+    address constant private ANY_ADDRESS = 0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF;
 
     bool constant private TOKEN_TRANSFERABLE = false;
     uint8 constant private TOKEN_DECIMALS = uint8(0);
@@ -21,61 +29,26 @@ contract NestTemplate is BaseTemplate, TokenCache {
         _ensureMiniMeFactoryIsValid(_miniMeFactory);
     }
 
-    /**
-    * @dev Create a new MiniMe token and deploy a Membership DAO.
-    *      to be setup due to gas limits.
-    * @param _tokenName String with the name for the token used by share holders in the organization
-    * @param _tokenSymbol String with the symbol for the token used by share holders in the organization
-    * @param _id String with the name for org, will assign `[id].aragonid.eth`
-    * @param _members Array of member addresses (1 token will be minted for each member)
-    * @param _votingSettings Array of [supportRequired, minAcceptanceQuorum, voteDuration] to set up the voting app of the organization
-    * @param _financePeriod Initial duration for accounting periods.
-    */
-    function newTokenAndInstance(
-        string _tokenName,
-        string _tokenSymbol,
-        string _id,
-        address[] _members,
-        uint64[3] _votingSettings,
-        uint64 _financePeriod
-    )
-        external
-    {
-        newToken(_tokenName, _tokenSymbol);
-        newInstance(_id, _members, _votingSettings, _financePeriod);
-    }
-
-    /**
-    * @dev Create a new MiniMe token and cache it for the user
-    * @param _name String with the name for the token used by share holders in the organization
-    * @param _symbol String with the symbol for the token used by share holders in the organization
-    */
     function newToken(string memory _name, string memory _symbol) public returns (MiniMeToken) {
         MiniMeToken token = _createToken(_name, _symbol, TOKEN_DECIMALS);
         _cacheToken(token, msg.sender);
         return token;
     }
 
-    /**
-    * @dev Deploy a Membership DAO using a previously cached MiniMe token
-    * @param _id String with the name for org, will assign `[id].aragonid.eth`
-    * @param _members Array of member addresses (1 token will be minted for each member)
-    * @param _votingSettings Array of [supportRequired, minAcceptanceQuorum, voteDuration] to set up the voting app of the organization
-    * @param _financePeriod Initial duration for accounting periods.
-    */
     function newInstance(
         string memory _id,
         address[] memory _members,
         uint64[3] memory _votingSettings,
-        uint64 _financePeriod
+        uint64 _financePeriod,
+        bytes32 _approvalsNameHash,
+        address _aaAccount
     )
         public
 	{
-        _validateId(_id);
-        _validateMembershipSettings(_members, _votingSettings, _financePeriod);
+        _validateParameters(_id, _members, _votingSettings, _financePeriod, _approvalsNameHash, _aaAccount);
 
         (Kernel dao, ACL acl) = _createDAO();
-        (Finance finance, Voting voting) = _setupApps(dao, acl, _members, _votingSettings, _financePeriod);
+        (Finance finance, Voting voting) = _setupApps(dao, acl, _members, _votingSettings, _financePeriod, _approvalsNameHash, _aaAccount);
         _transferCreatePaymentManagerFromTemplate(acl, finance, voting);
         _transferRootPermissionsFromTemplateAndFinalizeDAO(dao, voting);
         _registerID(_id, dao);
@@ -86,7 +59,9 @@ contract NestTemplate is BaseTemplate, TokenCache {
         ACL _acl,
         address[] memory _members,
         uint64[3] memory _votingSettings,
-        uint64 _financePeriod
+        uint64 _financePeriod,
+        bytes32 _approvalsNameHash,
+        address _aaAccount
     )
         internal
         returns (Finance, Voting)
@@ -96,11 +71,17 @@ contract NestTemplate is BaseTemplate, TokenCache {
         Finance finance = _installFinanceApp(_dao, vault, _financePeriod);
         TokenManager tokenManager = _installTokenManagerApp(_dao, token, TOKEN_TRANSFERABLE, TOKEN_MAX_PER_ACCOUNT);
         Voting voting = _installVotingApp(_dao, token, _votingSettings);
+        Approvals approvals = _installApprovalsApp(_dao, _approvalsNameHash);
 
         _mintTokens(_acl, tokenManager, _members, 1);
-        _setupPermissions(_acl, vault, voting, finance, tokenManager);
+        _setupPermissions(_acl, vault, voting, finance, tokenManager, approvals, _aaAccount);
 
         return (finance, voting);
+    }
+
+    function _installApprovalsApp(Kernel _dao, bytes32 _approvalsNameHash) internal returns (Approvals) {
+        bytes memory initializeData = abi.encodeWithSelector(Approvals(0).initialize.selector);
+        return Approvals(_installNonDefaultApp(_dao, _approvalsNameHash, initializeData));
     }
 
     function _setupPermissions(
@@ -108,7 +89,9 @@ contract NestTemplate is BaseTemplate, TokenCache {
         Vault _vault,
         Voting _voting,
         Finance _finance,
-        TokenManager _tokenManager
+        TokenManager _tokenManager,
+        Approvals _approvals,
+        address _aaAccount
     )
         internal
     {
@@ -118,12 +101,38 @@ contract NestTemplate is BaseTemplate, TokenCache {
         _createEvmScriptsRegistryPermissions(_acl, _voting, _voting);
         _createVotingPermissions(_acl, _voting, _voting, _tokenManager, _voting);
         _createTokenManagerPermissions(_acl, _tokenManager, _voting, _voting);
+        _createApprovalsPermissions(_acl, _approvals, _aaAccount);
     }
 
-    function _validateMembershipSettings(address[] memory _members, uint64[3] memory _votingSettings, uint64 _financePeriod) private pure {
+    function _createApprovalsPermissions(ACL _acl, Approvals _approvals, address _aaAccount) internal {
+        _acl.createPermission(ANY_ADDRESS, _approvals, _approvals.SUBMIT_ROLE(), _aaAccount);
+        _acl.createPermission(_aaAccount, _approvals, _approvals.APPROVE_ROLE(), _aaAccount);
+        _acl.createPermission(_aaAccount, _approvals, _approvals.REJECT_ROLE(), _aaAccount);
+    }
+
+    function _validateParameters(
+        string memory _id,
+        address[] memory _members,
+        uint64[3] memory _votingSettings,
+        uint64 _financePeriod,
+        bytes32 _approvalsNameHash,
+        address _aaAccount
+    )
+        private pure
+    {
+        _validateId(_id);
+
         require(_members.length > 0, ERROR_MISSING_MEMBERS);
+
         require(_financePeriod > 0, ERROR_BAD_FINANCE_PERIOD);
-        require(_votingSettings.length == 3, ERROR_BAD_VOTE_SETTINGS);
+
+        require(_votingSettings[0] > 0, ERROR_BAD_VOTE_SUPPORT);
+        require(_votingSettings[1] > 0, ERROR_BAD_VOTE_ACCEPTANCE);
+        require(_votingSettings[2] > 0, ERROR_BAD_VOTE_DURATION);
+
+        require(_approvalsNameHash[0] != 0, ERROR_BAD_APPROVALS);
+
+        require(_aaAccount != address(0), ERROR_BAD_AA_ACCOUNT);
     }
 }
 

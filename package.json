@@ -38,6 +38,7 @@
     "publish:mainnet": "aragon apm publish major $(npm run deploy:mainnet | tail -n 1) --environment mainnet"
   },
   "dependencies": {
+    "@aragon/approvals": "github:aragonone/approvals",
     "@aragon/os": "4.2.0",
     "@aragon/templates-shared": "^1.0.0"
   },
