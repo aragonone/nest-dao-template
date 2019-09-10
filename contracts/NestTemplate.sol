@@ -53,6 +53,22 @@ contract NestTemplate is BaseTemplate, TokenCache {
         _registerID(_id, dao);
     }
 
+    function newTokenAndInstance(
+        string memory _tokenName,
+        string memory _tokenSymbol,
+        string memory _id,
+        address[] memory _members,
+        uint64[3] memory _votingSettings,
+        uint64 _financePeriod,
+        bytes32 _approvalsNameHash,
+        address _aaAccount
+    )
+        public
+	{
+        newToken(_tokenName, _tokenSymbol);
+        newInstance(_id, _members, _votingSettings, _financePeriod, _approvalsNameHash, _aaAccount);
+    }
+
     function _setupApps(
         Kernel _dao,
         ACL _acl,

@@ -279,4 +279,37 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
       itSetupsDAOCorrectly()
     })
   })
+
+  context('creating instances with a single transaction', () => {
+    context('when the creation fails', () => {
+      before('create token', async () => {
+        await template.newToken(TOKEN_NAME, TOKEN_SYMBOL)
+      })
+
+      itFailsAsExpected('newInstance')
+    })
+
+    context('when the creation succeeds', () => {
+      let instanceReceipt
+
+      const itCostsUpTo = (expectedTotalCost) => {
+        it(`gas costs must be up to ~${expectedTotalCost} gas`, async () => {
+          const daoCreationCost = instanceReceipt.receipt.gasUsed
+          assert.isAtMost(daoCreationCost, expectedTotalCost, `dao creation call should cost up to ${expectedTotalCost} gas`)
+        })
+      }
+
+      const createDAO = () => {
+        before('create entity', async () => {
+          daoID = randomId()
+          instanceReceipt = await template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, approvalsNameHash, aaAccount, { from: owner })
+          await loadDAO(instanceReceipt, instanceReceipt)
+        })
+      }
+
+      createDAO()
+      itCostsUpTo(7.29e6)
+      itSetupsDAOCorrectly()
+    })
+  })
 })
