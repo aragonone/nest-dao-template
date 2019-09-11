@@ -230,7 +230,7 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
     })
   }
 
-  context('creating instances with separate transactions', () => {
+  context('when creating instances with separate transactions', () => {
     context('when the creation fails', () => {
       context('when there was no token created before', () => {
         it('reverts', async () => {
@@ -280,7 +280,7 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
     })
   })
 
-  context('creating instances with a single transaction', () => {
+  context('when creating instances with a single transaction', () => {
     context('when the creation fails', () => {
       before('create token', async () => {
         await template.newToken(TOKEN_NAME, TOKEN_SYMBOL)
