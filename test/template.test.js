@@ -230,6 +230,24 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
     })
   }
 
+  const itCostsUpTo = (expectedCosts, receipts) => {
+    const expectedTotalCost = expectedCosts.reduce((total, expectedCost) => total += expectedCost, 0)
+
+    let totalCost = 0
+
+    for (let i = 0; i < expectedCosts.length; i++) {
+      const expectedCost = expectedCosts[i]
+      const receipt = receipts[i]
+
+      const cost = receipt.receipt.gasUsed
+      assert.isAtMost(cost, expectedCost, `call should cost up to ${expectedCost} gas`)
+
+      totalCost += cost
+    }
+
+    assert.isAtMost(totalCost, expectedTotalCost, `total costs should be up to ${expectedTotalCost} gas`)
+  }
+
   context('when creating instances with separate transactions', () => {
     context('when the creation fails', () => {
       context('when there was no token created before', () => {
@@ -248,34 +266,17 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
     })
 
     context('when the creation succeeds', () => {
-      let instanceReceipt, tokenReceipt
-
-      const itCostsUpTo = (expectedTokenCreationCost, expectedDaoCreationCost) => {
-        const expectedTotalCost = expectedTokenCreationCost + expectedDaoCreationCost
-
-        it(`gas costs must be up to ~${expectedTotalCost} gas`, async () => {
-          const tokenCreationCost = tokenReceipt.receipt.gasUsed
-          assert.isAtMost(tokenCreationCost, expectedTokenCreationCost, `token creation call should cost up to ${tokenCreationCost} gas`)
-
-          const daoCreationCost = instanceReceipt.receipt.gasUsed
-          assert.isAtMost(daoCreationCost, expectedDaoCreationCost, `dao creation call should cost up to ${expectedDaoCreationCost} gas`)
-
-          const totalCost = tokenCreationCost + daoCreationCost
-          assert.isAtMost(totalCost, expectedTotalCost, `total costs should be up to ${expectedTotalCost} gas`)
-        })
-      }
-
       const createDAO = () => {
         before('create entity', async () => {
           daoID = randomId()
-          tokenReceipt = await template.newToken(TOKEN_NAME, TOKEN_SYMBOL, { from: owner })
-          instanceReceipt = await template.newInstance(daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, approvalsNameHash, aaAccount, { from: owner })
+          const tokenReceipt = await template.newToken(TOKEN_NAME, TOKEN_SYMBOL, { from: owner })
+          const instanceReceipt = await template.newInstance(daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, approvalsNameHash, aaAccount, { from: owner })
           await loadDAO(tokenReceipt, instanceReceipt)
+          itCostsUpTo([1.71e6, 5.58e6], [tokenReceipt, instanceReceipt])
         })
       }
 
       createDAO()
-      itCostsUpTo(1.71e6, 5.58e6)
       itSetupsDAOCorrectly()
     })
   })
@@ -290,25 +291,16 @@ contract('Nest', ([owner, member1, member2, aaAccount]) => {
     })
 
     context('when the creation succeeds', () => {
-      let instanceReceipt
-
-      const itCostsUpTo = (expectedTotalCost) => {
-        it(`gas costs must be up to ~${expectedTotalCost} gas`, async () => {
-          const daoCreationCost = instanceReceipt.receipt.gasUsed
-          assert.isAtMost(daoCreationCost, expectedTotalCost, `dao creation call should cost up to ${expectedTotalCost} gas`)
-        })
-      }
-
       const createDAO = () => {
         before('create entity', async () => {
           daoID = randomId()
-          instanceReceipt = await template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, approvalsNameHash, aaAccount, { from: owner })
+          const instanceReceipt = await template.newTokenAndInstance(TOKEN_NAME, TOKEN_SYMBOL, daoID, MEMBERS, VOTING_SETTINGS, FINANCE_PERIOD, approvalsNameHash, aaAccount, { from: owner })
           await loadDAO(instanceReceipt, instanceReceipt)
+          itCostsUpTo([7.29e6], [instanceReceipt])
         })
       }
 
       createDAO()
-      itCostsUpTo(7.29e6)
       itSetupsDAOCorrectly()
     })
   })
